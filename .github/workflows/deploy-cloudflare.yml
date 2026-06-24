@@ -1,0 +1,40 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/**"
+      - ".github/workflows/deploy-cloudflare.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: cloudflare
+          command: deploy
+
+      - name: Run D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: cloudflare
+          command: d1 execute mcp-enhanced-tasks --remote --file=src/schema.sql

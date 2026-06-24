@@ -1,0 +1,21 @@
+{
+  "name": "mcp-enhanced-server-cf",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create mcp-enhanced-tasks",
+    "db:migrate": "wrangler d1 execute mcp-enhanced-tasks --file=src/schema.sql"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250602.0",
+    "wrangler": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}

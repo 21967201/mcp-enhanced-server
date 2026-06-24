@@ -1,0 +1,18 @@
+name = "mcp-enhanced-server"
+main = "src/index.ts"
+compatibility_date = "2025-03-26"
+
+[vars]
+ENVIRONMENT = "production"
+MCP_ALLOWED_ORIGINS = ""
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mcp-enhanced-tasks"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[env.dev]
+name = "mcp-enhanced-server-dev"
+[env.dev.vars]
+ENVIRONMENT = "development"
+MCP_ALLOWED_ORIGINS = "localhost"
