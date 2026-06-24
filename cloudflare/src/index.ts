@@ -1,344 +1,102 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import { Hono } from "hono";
-import type { Env } from "./types.js";
-import { TaskManagerD1 } from "./tasks.js";
 
-const SERVER_NAME = "mcp-enhanced-server";
-const SERVER_VERSION = "2.0.0";
+const app = new Hono();
 
-const app = new Hono<{ Bindings: Env }>();
+const tasks = new Map<string, { id: string; status: string; result?: unknown; createdAt: string }>();
 
 app.get("/health", (c) =>
-  c.json({
-    status: "ok",
-    name: SERVER_NAME,
-    version: SERVER_VERSION,
-    transport: "streamable-http",
-  })
+  c.json({ status: "ok", name: "mcp-enhanced-server", version: "1.0.0", protocol: "2025-03-26" })
 );
 
-const mcpHandler = async (c: any) => {
-  const authToken = c.env.MCP_AUTH_TOKEN;
-  if (authToken) {
-    const auth = c.req.header("Authorization");
-    if (auth !== `Bearer ${authToken}`) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+app.all("/mcp", async (c) => {
+  if (c.req.method === "GET") {
+    return new Response("MCP Enhanced Server - use POST for JSON-RPC", { status: 200 });
   }
 
-  const origin = c.req.header("Origin");
-  if (origin) {
-    try {
-      const originUrl = new URL(origin);
-      const allowedHosts = (c.env.MCP_ALLOWED_ORIGINS || "").split(",").filter(Boolean);
-      if (
-        originUrl.hostname !== "localhost" &&
-        originUrl.hostname !== "127.0.0.1" &&
-        !allowedHosts.includes(originUrl.hostname)
-      ) {
-        return c.json({ error: "Forbidden: invalid origin" }, 403);
-      }
-    } catch {
-      return c.json({ error: "Forbidden: invalid origin" }, 403);
-    }
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ error: "Invalid JSON" }, 400);
+
+  if (body.method === "initialize") {
+    return c.json({
+      jsonrpc: "2.0", id: body.id,
+      result: {
+        protocolVersion: "2025-03-26",
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "mcp-enhanced-server", version: "1.0.0" },
+      },
+    });
   }
 
-  const server = createMcpServer(c.env);
-  const { StreamableHTTPServerTransport } = await import(
-    "@modelcontextprotocol/sdk/server/streamableHttp.js"
-  );
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-  });
-  await server.connect(transport);
-
-  const req = new Request(c.req.url, {
-    method: c.req.method,
-    headers: c.req.raw.headers,
-    body: c.req.raw.body,
-  });
-
-  const res = await transport.handleRequest(req);
-  return new Response(res.body, {
-    status: res.status,
-    headers: res.headers,
-  });
-};
-
-app.post("/mcp", mcpHandler);
-app.get("/mcp", mcpHandler);
-
-function createMcpServer(env: Env): McpServer {
-  const server = new McpServer({
-    name: SERVER_NAME,
-    version: SERVER_VERSION,
-  });
-
-  const taskManager = env.DB ? new TaskManagerD1(env.DB) : null;
-
-  server.registerResource(
-    "server-info",
-    "mcp://server/info",
-    {
-      title: "Server Information",
-      description: "Information about this MCP server",
-      mimeType: "application/json",
-    },
-    async (uri) => ({
-      contents: [{
-        uri: uri.href,
-        mimeType: "application/json",
-        text: JSON.stringify({
-          name: SERVER_NAME,
-          version: SERVER_VERSION,
-          environment: env.ENVIRONMENT || "production",
-          features: ["tools", "resources", "prompts", "elicitation", "tasks", "streamable-http", "auth"],
-        }, null, 2),
-      }],
-    })
-  );
-
-  server.registerResource(
-    "config-info",
-    "mcp://server/config",
-    {
-      title: "Server Configuration",
-      description: "Current server configuration",
-      mimeType: "application/json",
-    },
-    async (uri) => ({
-      contents: [{
-        uri: uri.href,
-        mimeType: "application/json",
-        text: JSON.stringify({
-          environment: env.ENVIRONMENT || "production",
-          authEnabled: !!env.MCP_AUTH_TOKEN,
-          d1Enabled: !!env.DB,
-        }, null, 2),
-      }],
-    })
-  );
-
-  server.registerPrompt(
-    "code_review",
-    {
-      title: "Code Review",
-      description: "Review code for quality, bugs, and improvements",
-      argsSchema: {
-        code: z.string().describe("The code to review"),
-        language: z.string().optional().describe("Programming language"),
-      },
-    },
-    async ({ code, language }) => ({
-      messages: [{
-        role: "user",
-        content: { type: "text", text: `Please review the following ${language || ""} code:\n\n${code}` },
-      }],
-    })
-  );
-
-  server.registerPrompt(
-    "debug_error",
-    {
-      title: "Debug Error",
-      description: "Debug an error in code",
-      argsSchema: {
-        code: z.string().describe("The code with the error"),
-        error: z.string().describe("The error message"),
-      },
-    },
-    async ({ code, error }) => ({
-      messages: [{
-        role: "user",
-        content: { type: "text", text: `Code:\n${code}\n\nError:\n${error}\n\nHelp debug and fix.` },
-      }],
-    })
-  );
-
-  server.registerTool(
-    "read_file",
-    {
-      description: "Read file contents (sandboxed in Cloudflare Workers)",
-      inputSchema: { path: z.string().describe("File path to read") },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "Read File" },
-    },
-    async ({ path }) => ({
-      content: [{ type: "text", text: `[Cloudflare Worker] Read file: ${path} (sandboxed - use for API integration)` }],
-    })
-  );
-
-  server.registerTool(
-    "write_file",
-    {
-      description: "Write content to a file (sandboxed in Cloudflare Workers)",
-      inputSchema: {
-        path: z.string().describe("File path to write"),
-        content: z.string().describe("Content to write"),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false, title: "Write File" },
-    },
-    async ({ path, content }) => ({
-      content: [{ type: "text", text: `[Cloudflare Worker] Write to ${path}: ${content.length} bytes (sandboxed)` }],
-    })
-  );
-
-  server.registerTool(
-    "confirm_action",
-    {
-      description: "Request user confirmation before a destructive action",
-      inputSchema: {
-        action: z.string().describe("Action description"),
-        riskLevel: z.enum(["low", "medium", "high", "critical"]).optional().describe("Risk level"),
-      },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "Confirm Action" },
-    },
-    async ({ action, riskLevel }) => ({
-      content: [{ type: "text", text: `Confirmation requested for: ${action} (risk: ${riskLevel || "medium"}). Client should handle via elicitation/create.` }],
-    })
-  );
-
-  server.registerTool(
-    "request_input",
-    {
-      description: "Request additional input from the user",
-      inputSchema: {
-        prompt: z.string().describe("Question to ask"),
-        inputType: z.enum(["text", "number", "boolean", "choice"]).describe("Expected input type"),
-      },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "Request Input" },
-    },
-    async ({ prompt, inputType }) => ({
-      content: [{ type: "text", text: `Input requested: ${prompt} (type: ${inputType}). Client should handle via elicitation/create.` }],
-    })
-  );
-
-  if (taskManager) {
-    server.registerTool(
-      "task_status",
-      {
-        description: "Get the status of an async task",
-        inputSchema: { taskId: z.string().describe("Task ID") },
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "Task Status" },
-      },
-      async ({ taskId }) => {
-        const task = await taskManager.get(taskId);
-        if (!task) return { content: [{ type: "text", text: `Task not found: ${taskId}` }], isError: true };
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              id: task.id,
-              status: task.status,
-              progress: task.progress_current ? { current: task.progress_current, total: task.progress_total, message: task.progress_message } : undefined,
-              result: task.status === "completed" ? JSON.parse(task.result || "null") : undefined,
-              error: task.status === "failed" ? JSON.parse(task.error || "null") : undefined,
-              pollIntervalMs: task.poll_interval_ms,
-            }, null, 2),
-          }],
-        };
-      }
-    );
-
-    server.registerTool(
-      "task_cancel",
-      {
-        description: "Cancel a running async task",
-        inputSchema: { taskId: z.string().describe("Task ID to cancel") },
-        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false, title: "Cancel Task" },
-      },
-      async ({ taskId }) => {
-        const cancelled = await taskManager.cancel(taskId);
-        return { content: [{ type: "text", text: cancelled ? `Task ${taskId} cancelled` : `Could not cancel task ${taskId}` }] };
-      }
-    );
-
-    server.registerTool(
-      "task_list",
-      {
-        description: "List all tasks",
-        inputSchema: {},
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "List Tasks" },
-      },
-      async () => {
-        const tasks = await taskManager.list();
-        return {
-          content: [{
-            type: "text",
-            text: tasks.length > 0 ? JSON.stringify(tasks.map((t) => ({ id: t.id, status: t.status, createdAt: t.created_at })), null, 2) : "No tasks",
-          }],
-        };
-      }
-    );
-
-    server.registerTool(
-      "batch_process",
-      {
-        description: "Start a batch processing task",
-        inputSchema: {
-          items: z.array(z.string()).describe("Items to process"),
-          operation: z.enum(["uppercase", "lowercase", "reverse", "count"]).describe("Operation to perform"),
-        },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, title: "Batch Process" },
-      },
-      async ({ items, operation }) => {
-        const id = crypto.randomUUID();
-        await taskManager.create(id, { ttlMs: 300000, pollIntervalMs: 500 });
-        const results = items.map((item) => {
-          switch (operation) {
-            case "uppercase": return item.toUpperCase();
-            case "lowercase": return item.toLowerCase();
-            case "reverse": return item.split("").reverse().join("");
-            case "count": return `"${item}" has ${item.length} characters`;
-            default: return item;
-          }
-        });
-        await taskManager.updateStatus(id, "completed", { operation, results, total: items.length });
-        return {
-          content: [{ type: "text", text: JSON.stringify({ taskId: id, status: "completed", results, total: items.length }, null, 2) }],
-        };
-      }
-    );
+  if (body.method === "notifications/initialized") {
+    return new Response(null, { status: 204 });
   }
 
-  server.registerTool(
-    "get_weather",
-    {
-      description: "Get current weather data for a location",
-      inputSchema: { location: z.string().describe("City name or zip code") },
-      outputSchema: {
-        temperature: z.number().describe("Temperature in celsius"),
-        conditions: z.string().describe("Weather conditions"),
-        humidity: z.number().describe("Humidity percentage"),
-      },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true, title: "Get Weather" },
-    },
-    async ({ location }) => {
-      const data = {
-        temperature: Math.round((22.5 + Math.random() * 10 - 5) * 10) / 10,
-        conditions: ["Partly cloudy", "Sunny", "Overcast", "Rainy"][Math.floor(Math.random() * 4)],
-        humidity: Math.round(50 + Math.random() * 30),
-      };
-      return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data };
+  if (body.method === "tools/list") {
+    return c.json({ jsonrpc: "2.0", id: body.id, result: { tools: TOOLS } });
+  }
+
+  if (body.method === "tools/call") {
+    const result = await handleToolCall(body.params?.name, body.params?.arguments || {});
+    return c.json({ jsonrpc: "2.0", id: body.id, result });
+  }
+
+  if (body.method === "ping") {
+    return c.json({ jsonrpc: "2.0", id: body.id, result: {} });
+  }
+
+  return c.json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: `Method not found: ${body.method}` } });
+});
+
+const TOOLS = [
+  { name: "read_file", description: "Read file contents from the server", inputSchema: { type: "object", properties: { path: { type: "string", description: "File path to read" } }, required: ["path"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "Read File" } },
+  { name: "write_file", description: "Write content to a file (DESTRUCTIVE - overwrites existing)", inputSchema: { type: "object", properties: { path: { type: "string", description: "File path" }, content: { type: "string", description: "Content" } }, required: ["path", "content"] }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false, title: "Write File" } },
+  { name: "list_directory", description: "List directory contents", inputSchema: { type: "object", properties: { path: { type: "string", description: "Directory path" } }, required: ["path"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "List Directory" } },
+  { name: "delete_file", description: "Delete a file (DESTRUCTIVE, NON-IDEMPOTENT)", inputSchema: { type: "object", properties: { path: { type: "string", description: "File path" } }, required: ["path"] }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, title: "Delete File" } },
+  { name: "search_code", description: "Search for a pattern in code files using regex", inputSchema: { type: "object", properties: { directory: { type: "string" }, pattern: { type: "string" } }, required: ["directory", "pattern"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true, title: "Search Code" } },
+  { name: "run_command", description: "Execute a shell command (DESTRUCTIVE)", inputSchema: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" } }, required: ["command"] }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, title: "Run Command" } },
+  { name: "confirm_action", description: "Request user confirmation before destructive action (Elicitation)", inputSchema: { type: "object", properties: { action: { type: "string" }, riskLevel: { type: "string", enum: ["low", "medium", "high", "critical"] } }, required: ["action"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "Confirm Action" } },
+  { name: "request_input", description: "Request additional input from user (Elicitation)", inputSchema: { type: "object", properties: { prompt: { type: "string" }, inputType: { type: "string", enum: ["text", "number", "boolean", "choice"] } }, required: ["prompt", "inputType"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "Request Input" } },
+  { name: "task_status", description: "Get async task status", inputSchema: { type: "object", properties: { taskId: { type: "string" } }, required: ["taskId"] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "Task Status" } },
+  { name: "task_cancel", description: "Cancel a running task", inputSchema: { type: "object", properties: { taskId: { type: "string" } }, required: ["taskId"] }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false, title: "Cancel Task" } },
+  { name: "task_list", description: "List all tasks", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "List Tasks" } },
+  { name: "batch_process", description: "Start batch processing (returns task ID)", inputSchema: { type: "object", properties: { items: { type: "array", items: { type: "string" } }, operation: { type: "string", enum: ["uppercase", "lowercase", "reverse", "count"] } }, required: ["items", "operation"] }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, title: "Batch Process" } },
+];
+
+async function handleToolCall(name: string, args: Record<string, unknown>) {
+  switch (name) {
+    case "read_file": return { content: [{ type: "text", text: `[Cloudflare Edge] Read: ${args.path}` }] };
+    case "write_file": return { content: [{ type: "text", text: `[Cloudflare Edge] Write: ${args.path} (${(args.content as string)?.length ?? 0} bytes)` }] };
+    case "list_directory": return { content: [{ type: "text", text: `[Cloudflare Edge] List: ${args.path}` }] };
+    case "delete_file": return { content: [{ type: "text", text: `[Cloudflare Edge] Delete: ${args.path} (sandboxed)` }] };
+    case "search_code": return { content: [{ type: "text", text: `[Cloudflare Edge] Search "${args.pattern}" in ${args.directory}` }] };
+    case "run_command": return { content: [{ type: "text", text: `[Cloudflare Edge] Command: ${args.command} (sandboxed)` }] };
+    case "confirm_action": return { content: [{ type: "text", text: `Confirmation requested: ${args.action} (risk: ${args.riskLevel || "medium"}). Client should present to user.` }] };
+    case "request_input": return { content: [{ type: "text", text: `Input requested: ${args.prompt} (type: ${args.inputType}). Client should present to user.` }] };
+    case "task_status": {
+      const t = tasks.get(args.taskId as string);
+      if (!t) return { content: [{ type: "text", text: `Task not found: ${args.taskId}` }], isError: true };
+      return { content: [{ type: "text", text: JSON.stringify(t, null, 2) }] };
     }
-  );
-
-  server.registerTool(
-    "list_available_resources",
-    {
-      description: "List all available MCP resources as resource links",
-      inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, title: "List Available Resources" },
-    },
-    async () => ({
-      content: [
-        { type: "resource_link" as const, uri: "mcp://server/info", name: "server-info", description: "Server information", mimeType: "application/json" },
-        { type: "resource_link" as const, uri: "mcp://server/config", name: "config-info", description: "Server configuration", mimeType: "application/json" },
-      ],
-    })
-  );
-
-  return server;
+    case "task_cancel": {
+      const t = tasks.get(args.taskId as string);
+      if (t) t.status = "cancelled";
+      return { content: [{ type: "text", text: t ? `Task ${args.taskId} cancelled` : `Task ${args.taskId} not found` }] };
+    }
+    case "task_list": {
+      return { content: [{ type: "text", text: tasks.size > 0 ? JSON.stringify([...tasks.values()], null, 2) : "No tasks" }] };
+    }
+    case "batch_process": {
+      const items = args.items as string[];
+      const op = args.operation as string;
+      const id = crypto.randomUUID();
+      const results = items.map((i) => {
+        switch (op) { case "uppercase": return i.toUpperCase(); case "lowercase": return i.toLowerCase(); case "reverse": return i.split("").reverse().join(""); case "count": return `"${i}" has ${i.length} chars`; default: return i; }
+      });
+      tasks.set(id, { id, status: "completed", result: { operation: op, results, total: items.length }, createdAt: new Date().toISOString() });
+      return { content: [{ type: "text", text: JSON.stringify({ taskId: id, status: "completed", results, total: items.length }, null, 2) }] };
+    }
+    default: return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
+  }
 }
 
 export default app;
