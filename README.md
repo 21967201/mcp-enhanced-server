@@ -86,6 +86,12 @@ MCP_TRANSPORT=http MCP_PORT=3000 MCP_AUTH_TOKEN=your-secret-token npm start
 
 ## Cloudflare Workers Deployment
 
+Live deployment: **https://mcp-enhanced-server.catnip-haze.workers.dev**
+
+- Health: `GET /health`
+- MCP endpoint: `POST /mcp` (JSON-RPC 2.0)
+- MCP info: `GET /mcp`
+
 See `cloudflare/` directory for Workers deployment with D1 database.
 
 ```bash
