@@ -1,13 +1,19 @@
 name = "mcp-enhanced-server"
 main = "src/index.ts"
 compatibility_date = "2025-03-26"
-account_id = "e9f2ce9bb8ba0188010b08790b9d4501"
+account_id = "d94db9a244640b3b5debf1d349ee1369"
 
 [vars]
 ENVIRONMENT = "production"
+MCP_ALLOWED_ORIGINS = ""
 
 [[d1_databases]]
 binding = "DB"
 database_name = "mcp-enhanced-tasks"
-database_id = "322bdaf2-64f3-4747-abdf-7bc07a5fb844"
+database_id = "3879f916-72d3-4dbf-9cf1-650825e5380d"
 
+[env.dev]
+name = "mcp-enhanced-server-dev"
+[env.dev.vars]
+ENVIRONMENT = "development"
+MCP_ALLOWED_ORIGINS = "localhost"
