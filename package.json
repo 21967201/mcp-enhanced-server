@@ -16,9 +16,11 @@
     "libsodium-wrappers": "^0.8.4",
     "tweetnacl": "^1.0.3",
     "uuid": "^11.1.0",
-    "zod": "^3.25.0"
+    "zod": "^3.25.0",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/uuid": "^10.0.0",
     "typescript": "^5.8.0"
