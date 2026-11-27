@@ -90,9 +90,15 @@ jobs:
           echo "DATABASE_ID=${DB_ID}" >> $GITHUB_ENV
 
       - name: Update wrangler.toml with database ID
+        if: env.DB_ID != ''
         run: |
-          sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/${{ env.DB_ID }}/g" wrangler.toml
-          echo "Updated wrangler.toml with database ID: ${{ env.DB_ID }}"
+          if grep -q 'REPLACE_WITH_YOUR_D1_DATABASE_ID' wrangler.toml; then
+            sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/${DB_ID}/g" wrangler.toml
+          else
+            sed -i -E "s|^database_id = \".*\"|database_id = \"${DB_ID}\"|" wrangler.toml
+          fi
+          grep -n 'database_id' wrangler.toml
+          echo "wrangler.toml database_id set to: ${DB_ID}"
 
       - name: Initialize D1 schema
         env:
