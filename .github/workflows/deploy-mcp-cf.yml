@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'mcp-enhanced-server/cloudflare/**'
+      - 'cloudflare/**'
       - '.github/workflows/deploy-mcp-cf.yml'
   workflow_dispatch:
 
@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: mcp-enhanced-server/cloudflare
+        working-directory: cloudflare
 
     steps:
       - uses: actions/checkout@v7
@@ -29,6 +29,14 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Check Cloudflare credentials
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CF_TOKEN" ]; then echo "::error::缺少 secrets.CLOUDFLARE_API_TOKEN"; exit 1; fi
+          if [ -z "$CF_ACCOUNT" ]; then echo "::error::缺少 secrets.CLOUDFLARE_ACCOUNT_ID"; exit 1; fi
 
       - name: Create D1 database if not exists
         env:
@@ -65,7 +73,7 @@ jobs:
               print(data['result']['uuid'])
           else:
               print('ERROR: ' + str(data.get('errors')), file=sys.stderr)
-              sys.exit(1
+              sys.exit(1)
           " 2>/dev/null)
 
             if [ -z "$DB_ID" ]; then
@@ -93,8 +101,7 @@ jobs:
         run: |
           npx wrangler d1 execute mcp-enhanced-tasks \
             --remote \
-            --file=src/schema.sql \
-            --var CLOUDFLARE_ACCOUNT_ID:${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+            --file=src/schema.sql
 
       - name: Deploy to Cloudflare Workers
         env:
