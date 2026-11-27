@@ -11,13 +11,13 @@
     "inspector": "npx @modelcontextprotocol/inspector node dist/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "cors": "^2.8.5",
     "express": "^5.1.0",
     "libsodium-wrappers": "^0.8.4",
     "tweetnacl": "^1.0.3",
     "uuid": "^11.1.0",
-    "zod": "^3.25.0",
-    "cors": "^2.8.5"
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
