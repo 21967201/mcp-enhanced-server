@@ -8,22 +8,27 @@ on:
       - '.github/workflows/deploy-mcp-cf.yml'
   workflow_dispatch:
 
+concurrency:
+  group: deploy-mcp-cf-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: mcp-enhanced-server/cloudflare
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Create D1 database if not exists
         env:
